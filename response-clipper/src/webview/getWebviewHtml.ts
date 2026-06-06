@@ -26,14 +26,10 @@ export function getWebviewHtml(
   <title>Response Clipper</title>
 </head>
 <body>
-  <h2>Response Clipper</h2>
-
-  <div class="source-row">
-    <button id="btn-clip-clipboard" class="primary" style="width:100%">📋 Clip from Clipboard</button>
-  </div>
+  <textarea id="input-area" placeholder="Paste AI response here…" rows="6"></textarea>
 
   <div id="blocks-list" class="blocks-list">
-    <div class="empty">Loading…</div>
+    <div class="empty">Paste a response above to start clipping.</div>
   </div>
 
   <div class="divider"></div>

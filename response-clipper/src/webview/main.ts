@@ -15,31 +15,27 @@ type SelectableBlock = {
   selected: boolean;
   order: number;
   sourceProviderId?: ChatProviderId;
-  sourceConversationId?: string;
-  sourceMessageId?: string;
 };
 
 type FromWebviewMessage =
   | { type: "ready" }
   | { type: "copySelected"; blocks: SelectableBlock[] }
   | { type: "saveSelected"; blocks: SelectableBlock[] }
-  | { type: "saveToObsidian"; blocks: SelectableBlock[] }
-  | { type: "clipFromClipboard" }
-  | { type: "refresh" };
+  | { type: "saveToObsidian"; blocks: SelectableBlock[] };
 
 type ToWebviewMessage =
-  | { type: "blocksLoaded"; blocks: SelectableBlock[] }
   | { type: "info"; message: string }
   | { type: "error"; message: string };
 
-// @ts-ignore — acquireVsCodeApi is injected by the webview host
+// @ts-ignore
 const vscode = acquireVsCodeApi();
 
 let blocks: SelectableBlock[] = [];
+let idCounter = 0;
 
-function post(msg: FromWebviewMessage): void {
-  vscode.postMessage(msg);
-}
+function nextId(): string { return `b-${++idCounter}`; }
+
+function post(msg: FromWebviewMessage): void { vscode.postMessage(msg); }
 
 function setStatus(text: string, isError = false): void {
   const el = document.getElementById("status")!;
@@ -47,23 +43,96 @@ function setStatus(text: string, isError = false): void {
   el.className = "status" + (isError ? " error" : "");
 }
 
+// ── Inline block parser (mirrors splitIntoBlocks.ts) ─────────────────────────
+function parseBlocks(markdown: string): SelectableBlock[] {
+  const result: SelectableBlock[] = [];
+  const lines = markdown.split("\n");
+  let i = 0;
+  let order = 0;
+
+  function push(kind: SelectableBlockKind, md: string): void {
+    const trimmed = md.trim();
+    if (!trimmed) { return; }
+    result.push({ id: nextId(), kind, markdown: trimmed, plainText: trimmed.replace(/[#`$*_~|]/g, "").trim(), selected: false, order: order++ });
+  }
+
+  while (i < lines.length) {
+    const line = lines[i];
+    if (line.trim() === "") { i++; continue; }
+
+    // Fenced code block
+    if (/^```/.test(line.trim())) {
+      const fence = (line.trim().match(/^(`{3,})/)?.[1]) ?? "```";
+      const collected = [line]; i++;
+      while (i < lines.length) { collected.push(lines[i]); if (lines[i].trim() === fence) { i++; break; } i++; }
+      push("code", collected.join("\n")); continue;
+    }
+
+    // Display math block
+    if (line.trim() === "$") {
+      const collected = [line]; i++;
+      while (i < lines.length) { collected.push(lines[i]); if (lines[i].trim() === "$") { i++; break; } i++; }
+      push("math", collected.join("\n")); continue;
+    }
+
+    // Heading
+    if (/^#{1,6}\s/.test(line.trim())) { push("heading", line); i++; continue; }
+
+    // Thematic break
+    if (/^(---+|\*\*\*+|___+)\s*$/.test(line.trim())) { push("thematic_break", line); i++; continue; }
+
+    // List item
+    if (/^[-*+]\s/.test(line.trim()) || /^\d+\.\s/.test(line.trim())) {
+      const collected = [line]; i++;
+      while (i < lines.length && /^[ \t]+\S/.test(lines[i])) { collected.push(lines[i]); i++; }
+      push("list_item", collected.join("\n")); continue;
+    }
+
+    // Blockquote
+    if (/^>\s?/.test(line.trim())) {
+      const collected = [line]; i++;
+      while (i < lines.length && /^>\s?/.test(lines[i].trim())) { collected.push(lines[i]); i++; }
+      push("quote", collected.join("\n")); continue;
+    }
+
+    // Table
+    if (/^\|/.test(line.trim())) {
+      const collected = [line]; i++;
+      while (i < lines.length && /^\|/.test(lines[i].trim())) { collected.push(lines[i]); i++; }
+      push("table", collected.join("\n")); continue;
+    }
+
+    // Paragraph
+    const collected = [line]; i++;
+    while (i < lines.length) {
+      const next = lines[i];
+      if (next.trim() === "" || /^#{1,6}\s/.test(next.trim()) || /^```/.test(next.trim()) ||
+          next.trim() === "$" || /^[-*+]\s/.test(next.trim()) || /^\d+\.\s/.test(next.trim()) ||
+          /^>\s?/.test(next.trim()) || /^\|/.test(next.trim()) || /^(---+|\*\*\*+|___+)\s*$/.test(next.trim())) { break; }
+      collected.push(next); i++;
+    }
+    push("paragraph", collected.join("\n"));
+  }
+
+  return result;
+}
+
+// ── Render ────────────────────────────────────────────────────────────────────
 function renderBlocks(): void {
   const container = document.getElementById("blocks-list")!;
   if (blocks.length === 0) {
-    container.innerHTML = '<div class="empty">No blocks to display.</div>';
+    container.innerHTML = '<div class="empty">Paste a response above to start clipping.</div>';
     return;
   }
-
   container.innerHTML = "";
   blocks.forEach((block) => {
     const row = document.createElement("div");
     row.className = "block-row" + (block.selected ? " selected" : "");
-    row.dataset.id = block.id;
 
     const cb = document.createElement("input");
     cb.type = "checkbox";
     cb.checked = block.selected;
-    cb.addEventListener("change", () => toggleBlock(block.id, cb.checked));
+    cb.addEventListener("change", () => { toggleBlock(block.id, cb.checked); });
 
     const content = document.createElement("div");
     content.className = "block-content";
@@ -81,12 +150,8 @@ function renderBlocks(): void {
     row.appendChild(cb);
     row.appendChild(content);
 
-    // Clicking the row (not just checkbox) also toggles
     row.addEventListener("click", (e) => {
-      if (e.target !== cb) {
-        cb.checked = !cb.checked;
-        toggleBlock(block.id, cb.checked);
-      }
+      if (e.target !== cb) { cb.checked = !cb.checked; toggleBlock(block.id, cb.checked); }
     });
 
     container.appendChild(row);
@@ -94,24 +159,31 @@ function renderBlocks(): void {
 }
 
 function toggleBlock(id: string, selected: boolean): void {
-  blocks = blocks.map((b) => (b.id === id ? { ...b, selected } : b));
+  blocks = blocks.map((b) => b.id === id ? { ...b, selected } : b);
   renderBlocks();
 }
 
 function selectByKind(kind: string | null): void {
-  blocks = blocks.map((b) => ({
-    ...b,
-    selected: kind === null ? false : kind === "all" ? true : b.kind === kind,
-  }));
+  blocks = blocks.map((b) => ({ ...b, selected: kind === null ? false : kind === "all" ? true : b.kind === kind }));
   renderBlocks();
 }
 
-// Wire up buttons
-document.getElementById("btn-clip-clipboard")!.addEventListener("click", () => {
-  post({ type: "clipFromClipboard" });
-  setStatus("Parsing clipboard…");
+// ── Textarea live input ───────────────────────────────────────────────────────
+const inputArea = document.getElementById("input-area") as HTMLTextAreaElement;
+let parseTimer: ReturnType<typeof setTimeout> | null = null;
+
+inputArea.addEventListener("input", () => {
+  if (parseTimer) { clearTimeout(parseTimer); }
+  parseTimer = setTimeout(() => {
+    idCounter = 0;
+    blocks = parseBlocks(inputArea.value);
+    renderBlocks();
+    if (blocks.length > 0) { setStatus(`${blocks.length} blocks. Select and export.`); }
+    else { setStatus(""); }
+  }, 300);
 });
 
+// ── Button wiring ─────────────────────────────────────────────────────────────
 document.getElementById("btn-select-all")!.addEventListener("click", () => selectByKind("all"));
 document.getElementById("btn-select-none")!.addEventListener("click", () => selectByKind(null));
 document.getElementById("btn-select-math")!.addEventListener("click", () => selectByKind("math"));
@@ -135,24 +207,11 @@ document.getElementById("btn-obsidian")!.addEventListener("click", () => {
   post({ type: "saveToObsidian", blocks: selected });
 });
 
-// Handle messages from extension
+// ── Messages from extension ───────────────────────────────────────────────────
 window.addEventListener("message", (event) => {
   const msg = event.data as ToWebviewMessage;
-
-  switch (msg.type) {
-    case "blocksLoaded":
-      blocks = msg.blocks;
-      renderBlocks();
-      setStatus(blocks.length > 0 ? `${blocks.length} blocks loaded.` : "No blocks found.");
-      break;
-    case "info":
-      setStatus(msg.message);
-      break;
-    case "error":
-      setStatus(msg.message, true);
-      break;
-  }
+  if (msg.type === "info") { setStatus(msg.message); }
+  else if (msg.type === "error") { setStatus(msg.message, true); }
 });
 
-// Signal ready
 post({ type: "ready" });

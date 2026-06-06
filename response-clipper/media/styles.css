@@ -1,6 +1,23 @@
-* {
+textarea#input-area {
+  width: 100%;
+  background: var(--vscode-input-background);
+  color: var(--vscode-input-foreground);
+  border: 1px solid var(--vscode-input-border, rgba(128,128,128,0.3));
+  padding: 6px 8px;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 0.88em;
+  resize: vertical;
+  border-radius: 3px;
+  margin-bottom: 8px;
   box-sizing: border-box;
 }
+
+textarea#input-area:focus {
+  outline: none;
+  border-color: var(--vscode-focusBorder);
+}
+
+
 
 body {
   font-family: var(--vscode-font-family, sans-serif);
