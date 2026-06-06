@@ -1,0 +1,52 @@
+{
+  "name": "response-clipper",
+  "displayName": "Response Clipper",
+  "description": "Clip selected blocks from AI assistant responses",
+  "version": "0.1.0",
+  "engines": { "vscode": "^1.85.0" },
+  "categories": ["Other"],
+  "activationEvents": [],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "responseClipper.open",
+        "title": "Open Response Clipper"
+      },
+      {
+        "command": "responseClipper.refresh",
+        "title": "Refresh Response Clipper"
+      },
+      {
+        "command": "responseClipper.copySelectedMarkdown",
+        "title": "Copy Selected Markdown"
+      },
+      {
+        "command": "responseClipper.saveSelectedMarkdown",
+        "title": "Save Selected Markdown"
+      }
+    ],
+    "views": {
+      "explorer": [
+        {
+          "type": "webview",
+          "id": "responseClipper.sidebar",
+          "name": "Response Clipper"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./ && tsc -p ./tsconfig.webview.json",
+    "watch": "tsc -watch -p ./",
+    "test": "jest"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.12",
+    "@types/node": "^20.14.0",
+    "@types/vscode": "^1.85.0",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.1.4",
+    "typescript": "^5.4.5"
+  }
+}
