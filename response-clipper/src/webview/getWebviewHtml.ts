@@ -26,23 +26,11 @@ export function getWebviewHtml(
   <title>Response Clipper</title>
 </head>
 <body>
-  <textarea id="input-area" placeholder="Paste AI response here…" rows="6"></textarea>
+  <textarea id="input-area" placeholder="Paste AI response here…" rows="10"></textarea>
 
-  <div id="blocks-list" class="blocks-list">
-    <div class="empty">Paste a response above to start clipping.</div>
-  </div>
-
-  <div class="divider"></div>
-
-  <div class="actions-row" id="filter-actions">
-    <button id="btn-select-all">Select All</button>
-    <button id="btn-select-none">Select None</button>
-    <button id="btn-select-math">Select Math</button>
-    <button id="btn-select-code">Select Code</button>
-  </div>
+  <input id="filename-input" type="text" placeholder="File name (optional)" />
 
   <div class="actions-row">
-    <button id="btn-copy" class="primary">Copy Markdown</button>
     <button id="btn-save" class="primary">Save to .ai-clips</button>
     <button id="btn-obsidian" class="primary">Save to Obsidian</button>
   </div>
