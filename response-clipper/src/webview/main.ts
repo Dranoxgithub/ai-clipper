@@ -1,15 +1,33 @@
 // Webview client script — runs inside the webview context (no vscode API here)
-import type { SelectableBlock, ChatProviderId } from "../types";
+// Types inlined to avoid module imports (compiled with module: None for browser)
+
+type ChatProviderId = "sample" | "cursor" | "kiro";
+
+type SelectableBlockKind =
+  | "heading" | "paragraph" | "list_item" | "code"
+  | "math" | "table" | "quote" | "thematic_break" | "unknown";
+
+type SelectableBlock = {
+  id: string;
+  kind: SelectableBlockKind;
+  markdown: string;
+  plainText: string;
+  selected: boolean;
+  order: number;
+  sourceProviderId?: ChatProviderId;
+  sourceConversationId?: string;
+  sourceMessageId?: string;
+};
 
 type FromWebviewMessage =
   | { type: "ready" }
-  | { type: "selectProvider"; providerId: ChatProviderId }
   | { type: "copySelected"; blocks: SelectableBlock[] }
   | { type: "saveSelected"; blocks: SelectableBlock[] }
+  | { type: "saveToObsidian"; blocks: SelectableBlock[] }
+  | { type: "clipFromClipboard" }
   | { type: "refresh" };
 
 type ToWebviewMessage =
-  | { type: "providersLoaded"; providers: { id: ChatProviderId; displayName: string; available: boolean }[] }
   | { type: "blocksLoaded"; blocks: SelectableBlock[] }
   | { type: "info"; message: string }
   | { type: "error"; message: string };
@@ -89,6 +107,11 @@ function selectByKind(kind: string | null): void {
 }
 
 // Wire up buttons
+document.getElementById("btn-clip-clipboard")!.addEventListener("click", () => {
+  post({ type: "clipFromClipboard" });
+  setStatus("Parsing clipboard…");
+});
+
 document.getElementById("btn-select-all")!.addEventListener("click", () => selectByKind("all"));
 document.getElementById("btn-select-none")!.addEventListener("click", () => selectByKind(null));
 document.getElementById("btn-select-math")!.addEventListener("click", () => selectByKind("math"));
@@ -96,25 +119,20 @@ document.getElementById("btn-select-code")!.addEventListener("click", () => sele
 
 document.getElementById("btn-copy")!.addEventListener("click", () => {
   const selected = blocks.filter((b) => b.selected);
-  if (selected.length === 0) {
-    setStatus("No blocks selected.", true);
-    return;
-  }
+  if (selected.length === 0) { setStatus("No blocks selected.", true); return; }
   post({ type: "copySelected", blocks: selected });
 });
 
 document.getElementById("btn-save")!.addEventListener("click", () => {
   const selected = blocks.filter((b) => b.selected);
-  if (selected.length === 0) {
-    setStatus("No blocks selected.", true);
-    return;
-  }
+  if (selected.length === 0) { setStatus("No blocks selected.", true); return; }
   post({ type: "saveSelected", blocks: selected });
 });
 
-document.getElementById("provider-select")!.addEventListener("change", (e) => {
-  const id = (e.target as HTMLSelectElement).value as ChatProviderId;
-  post({ type: "selectProvider", providerId: id });
+document.getElementById("btn-obsidian")!.addEventListener("click", () => {
+  const selected = blocks.filter((b) => b.selected);
+  if (selected.length === 0) { setStatus("No blocks selected.", true); return; }
+  post({ type: "saveToObsidian", blocks: selected });
 });
 
 // Handle messages from extension
@@ -122,35 +140,14 @@ window.addEventListener("message", (event) => {
   const msg = event.data as ToWebviewMessage;
 
   switch (msg.type) {
-    case "providersLoaded": {
-      const select = document.getElementById("provider-select") as HTMLSelectElement;
-      select.innerHTML = "";
-      msg.providers
-        .filter((p) => p.available)
-        .forEach((p) => {
-          const opt = document.createElement("option");
-          opt.value = p.id;
-          opt.textContent = p.displayName;
-          select.appendChild(opt);
-        });
-      // Trigger load for the first available provider
-      if (select.options.length > 0) {
-        post({ type: "selectProvider", providerId: select.value as ChatProviderId });
-      }
-      break;
-    }
-
-    case "blocksLoaded": {
+    case "blocksLoaded":
       blocks = msg.blocks;
       renderBlocks();
-      setStatus(`${blocks.length} blocks loaded.`);
+      setStatus(blocks.length > 0 ? `${blocks.length} blocks loaded.` : "No blocks found.");
       break;
-    }
-
     case "info":
       setStatus(msg.message);
       break;
-
     case "error":
       setStatus(msg.message, true);
       break;

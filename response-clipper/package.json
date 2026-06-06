@@ -3,11 +3,25 @@
   "displayName": "Response Clipper",
   "description": "Clip selected blocks from AI assistant responses",
   "version": "0.1.0",
-  "engines": { "vscode": "^1.85.0" },
-  "categories": ["Other"],
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
   "activationEvents": [],
   "main": "./out/extension.js",
   "contributes": {
+    "configuration": {
+      "title": "Response Clipper",
+      "properties": {
+        "responseClipper.obsidianPath": {
+          "type": "string",
+          "default": "",
+          "description": "Absolute path to your Obsidian vault folder (e.g. ~/Documents/Obsidian/MyVault)"
+        }
+      }
+    },
     "commands": [
       {
         "command": "responseClipper.open",
@@ -36,15 +50,21 @@
       ]
     }
   },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/local/response-clipper"
+  },
   "scripts": {
     "compile": "tsc -p ./ && tsc -p ./tsconfig.webview.json",
     "watch": "tsc -watch -p ./",
-    "test": "jest"
+    "test": "jest",
+    "package": "npm run compile && npx vsce package --no-dependencies"
   },
   "devDependencies": {
     "@types/jest": "^29.5.12",
     "@types/node": "^20.14.0",
     "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^3.9.2",
     "jest": "^29.7.0",
     "ts-jest": "^29.1.4",
     "typescript": "^5.4.5"

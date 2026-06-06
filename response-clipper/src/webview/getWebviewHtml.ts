@@ -1,13 +1,11 @@
 import * as vscode from "vscode";
-import * as path from "path";
-import * as fs from "fs";
 
 export function getWebviewHtml(
   webview: vscode.Webview,
   extensionUri: vscode.Uri
 ): string {
   const stylesUri = webview.asWebviewUri(
-    vscode.Uri.joinPath(extensionUri, "src", "webview", "styles.css")
+    vscode.Uri.joinPath(extensionUri, "media", "styles.css")
   );
   const scriptUri = webview.asWebviewUri(
     vscode.Uri.joinPath(extensionUri, "out", "webview", "main.js")
@@ -31,8 +29,7 @@ export function getWebviewHtml(
   <h2>Response Clipper</h2>
 
   <div class="source-row">
-    <label for="provider-select">Source:</label>
-    <select id="provider-select"></select>
+    <button id="btn-clip-clipboard" class="primary" style="width:100%">📋 Clip from Clipboard</button>
   </div>
 
   <div id="blocks-list" class="blocks-list">
@@ -51,6 +48,7 @@ export function getWebviewHtml(
   <div class="actions-row">
     <button id="btn-copy" class="primary">Copy Markdown</button>
     <button id="btn-save" class="primary">Save to .ai-clips</button>
+    <button id="btn-obsidian" class="primary">Save to Obsidian</button>
   </div>
 
   <div id="status" class="status"></div>

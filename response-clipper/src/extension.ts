@@ -3,17 +3,17 @@ import * as path from "path";
 import * as fs from "fs";
 
 import { getWebviewHtml } from "./webview/getWebviewHtml";
-import { providers, getProvider, getAvailableProviders } from "./providers/providerRegistry";
 import { splitIntoBlocks } from "./markdown/splitIntoBlocks";
 import { exportSelectedBlocks } from "./markdown/exportMarkdown";
 import { scanForSecrets } from "./markdown/secretScan";
-import type { SelectableBlock, ChatProviderId } from "./types";
+import type { SelectableBlock } from "./types";
 
 type FromWebviewMessage =
   | { type: "ready" }
-  | { type: "selectProvider"; providerId: ChatProviderId }
+  | { type: "clipFromClipboard" }
   | { type: "copySelected"; blocks: SelectableBlock[] }
   | { type: "saveSelected"; blocks: SelectableBlock[] }
+  | { type: "saveToObsidian"; blocks: SelectableBlock[] }
   | { type: "refresh" };
 
 export function activate(context: vscode.ExtensionContext): void {
@@ -69,11 +69,12 @@ class ResponseClipperViewProvider implements vscode.WebviewViewProvider {
     webviewView.webview.onDidReceiveMessage(async (msg: FromWebviewMessage) => {
       switch (msg.type) {
         case "ready":
-          await this._sendProviders();
+          // Show empty state — user clicks "Clip from Clipboard" to load
+          this._post({ type: "blocksLoaded", blocks: [] });
           break;
 
-        case "selectProvider":
-          await this._loadProvider(msg.providerId);
+        case "clipFromClipboard":
+          await this._handleClipFromClipboard();
           break;
 
         case "copySelected":
@@ -84,8 +85,12 @@ class ResponseClipperViewProvider implements vscode.WebviewViewProvider {
           await this._handleSave(msg.blocks);
           break;
 
+        case "saveToObsidian":
+          await this._handleSaveToObsidian(msg.blocks);
+          break;
+
         case "refresh":
-          await this._sendProviders();
+          this._post({ type: "blocksLoaded", blocks: this._currentBlocks });
           break;
       }
     });
@@ -93,12 +98,11 @@ class ResponseClipperViewProvider implements vscode.WebviewViewProvider {
 
   refresh(): void {
     if (this._view) {
-      this._sendProviders();
+      this._post({ type: "blocksLoaded", blocks: this._currentBlocks });
     }
   }
 
   copySelected(): void {
-    // Triggered from command palette — re-use latest blocks state
     const selected = this._currentBlocks.filter((b) => b.selected);
     this._handleCopy(selected);
   }
@@ -106,56 +110,6 @@ class ResponseClipperViewProvider implements vscode.WebviewViewProvider {
   saveSelected(): void {
     const selected = this._currentBlocks.filter((b) => b.selected);
     this._handleSave(selected);
-  }
-
-  private async _sendProviders(): Promise<void> {
-    const available = await getAvailableProviders();
-    const allProviders = providers.map((p) => ({
-      id: p.id,
-      displayName: p.displayName,
-      available: available.some((a) => a.id === p.id),
-    }));
-
-    this._post({ type: "providersLoaded", providers: allProviders });
-  }
-
-  private async _loadProvider(providerId: ChatProviderId): Promise<void> {
-    const provider = getProvider(providerId);
-    if (!provider) {
-      this._post({ type: "error", message: `Provider "${providerId}" not found.` });
-      return;
-    }
-
-    const available = await provider.isAvailable();
-    if (!available) {
-      this._post({ type: "error", message: `Provider "${provider.displayName}" is not available yet.` });
-      return;
-    }
-
-    const conversations = await provider.listConversations();
-    if (conversations.length === 0) {
-      this._post({ type: "blocksLoaded", blocks: [] });
-      return;
-    }
-
-    // For MVP, always show the first assistant message of the first conversation
-    const conversation = conversations[0];
-    const assistantMsg = conversation.messages.find((m) => m.role === "assistant");
-    if (!assistantMsg) {
-      this._post({ type: "blocksLoaded", blocks: [] });
-      return;
-    }
-
-    const rawBlocks = splitIntoBlocks(assistantMsg.text);
-    const blocks: SelectableBlock[] = rawBlocks.map((b) => ({
-      ...b,
-      sourceProviderId: providerId,
-      sourceConversationId: conversation.id,
-      sourceMessageId: assistantMsg.id,
-    }));
-
-    this._currentBlocks = blocks;
-    this._post({ type: "blocksLoaded", blocks });
   }
 
   private async _handleCopy(selected: SelectableBlock[]): Promise<void> {
@@ -242,6 +196,78 @@ class ResponseClipperViewProvider implements vscode.WebviewViewProvider {
 
     vscode.window.showInformationMessage(`Saved to .ai-clips/${filename}`);
     this._post({ type: "info", message: `Saved to .ai-clips/${filename}` });
+  }
+
+  private async _handleClipFromClipboard(): Promise<void> {
+    const text = await vscode.env.clipboard.readText();
+    if (!text.trim()) {
+      this._post({ type: "error", message: "Clipboard is empty." });
+      return;
+    }
+    const rawBlocks = splitIntoBlocks(text);
+    const blocks: SelectableBlock[] = rawBlocks.map((b) => ({
+      ...b,
+      sourceProviderId: "sample" as const,
+    }));
+    this._currentBlocks = blocks;
+    this._post({ type: "blocksLoaded", blocks });
+    this._post({ type: "info", message: `Parsed ${blocks.length} blocks from clipboard.` });
+  }
+
+  private async _handleSaveToObsidian(selected: SelectableBlock[]): Promise<void> {
+    if (selected.length === 0) {
+      this._post({ type: "info", message: "No blocks selected." });
+      return;
+    }
+
+    const config = vscode.workspace.getConfiguration("responseClipper");
+    const obsidianPath: string = config.get("obsidianPath") || "";
+
+    if (!obsidianPath) {
+      vscode.window.showErrorMessage(
+        "No Obsidian path configured. Set responseClipper.obsidianPath in settings."
+      );
+      this._post({ type: "error", message: "Set responseClipper.obsidianPath in settings first." });
+      return;
+    }
+
+    const expanded = obsidianPath.replace(/^~/, process.env.HOME || "");
+    if (!fs.existsSync(expanded)) {
+      vscode.window.showErrorMessage(`Obsidian path not found: ${expanded}`);
+      this._post({ type: "error", message: `Path not found: ${expanded}` });
+      return;
+    }
+
+    const allBlocks = this._currentBlocks.map((b) => ({
+      ...b,
+      selected: selected.some((s) => s.id === b.id),
+    }));
+
+    const markdown = exportSelectedBlocks(allBlocks);
+
+    const scan = scanForSecrets(markdown);
+    if (scan.hasSecrets) {
+      const choice = await vscode.window.showWarningMessage(
+        "Selected text may contain secrets. Continue export?",
+        "Continue", "Cancel"
+      );
+      if (choice !== "Continue") {
+        this._post({ type: "info", message: "Export cancelled." });
+        return;
+      }
+    }
+
+    const timestamp = new Date()
+      .toISOString()
+      .replace(/T/, "-")
+      .replace(/:/g, "")
+      .replace(/\.\d+Z$/, "");
+    const filename = `${timestamp}-response-clip.md`;
+    const filePath = path.join(expanded, filename);
+
+    fs.writeFileSync(filePath, markdown, "utf8");
+    vscode.window.showInformationMessage(`Saved to Obsidian: ${filename}`);
+    this._post({ type: "info", message: `Saved to Obsidian: ${filename}` });
   }
 
   private _post(msg: object): void {
