@@ -46,6 +46,7 @@ window.addEventListener("message", (event) => {
     setStatus(msg.message);
     if (msg.message.startsWith("Saved")) {
       (document.getElementById("input-area") as HTMLTextAreaElement).value = "";
+      (document.getElementById("filename-input") as HTMLInputElement).value = "";
     }
   } else if (msg.type === "error") {
     setStatus(msg.message, true);
