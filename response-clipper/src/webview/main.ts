@@ -42,8 +42,14 @@ document.getElementById("btn-obsidian")!.addEventListener("click", () => {
 
 window.addEventListener("message", (event) => {
   const msg = event.data as ToWebviewMessage;
-  if (msg.type === "info") { setStatus(msg.message); }
-  else if (msg.type === "error") { setStatus(msg.message, true); }
+  if (msg.type === "info") {
+    setStatus(msg.message);
+    if (msg.message.startsWith("Saved")) {
+      (document.getElementById("input-area") as HTMLTextAreaElement).value = "";
+    }
+  } else if (msg.type === "error") {
+    setStatus(msg.message, true);
+  }
 });
 
 post({ type: "ready" });

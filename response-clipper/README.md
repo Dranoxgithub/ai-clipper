@@ -55,3 +55,12 @@ npm run compile   # build
 npm test          # run unit tests
 npm run package   # produce .vsix
 ```
+## For use 
+
+```bash 
+git clone https://github.com/Dranoxgithub/ai-clipper.git
+cd ai-clipper/response-clipper
+npm install
+npm run package
+```
+Then install the .vsix via Cmd+Shift+P → Extensions: Install from VSIX....
